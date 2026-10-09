@@ -25,3 +25,20 @@ The following performance metrics will be calculated for all 5 schedulers:
 - <ins>**System Throughput:**</ins> The number of processes completed per second
 - <ins>**Average Ready Queue Length:**</ins> The average number of processes waiting in the ready queue
 
+
+## Simulation Results
+Below is an example of what the summary table will look like. This is a data from a previous run of the program.
+
+### CS 3360 Assignment 3 Performance Summary (1000 Processes)
+
+| Metric | FCFS | SJF | SRTF | RR (q=2.0) | HRRN |
+|---|---:|---:|---:|---:|---:|
+| Total Completion Time (s) | 1007.185 | 1007.185 | 1007.185 | 1007.185 | 1007.185 |
+| Average Turnaround Time (s) | 273.310 | 95.380 | 94.695 | 269.351 | 120.011 |
+| Average Waiting Time (s) | 272.303 | 94.373 | 93.688 | 268.344 | 119.004 |
+| Average Response Time (s) | 272.303 | 94.373 | 92.656 | 231.565 | 119.004 |
+| CPU Utilization (%) | 99.972 | 99.972 | 99.972 | 99.972 | 99.972 |
+| System Throughput (proc/s) | 0.993 | 0.993 | 0.993 | 0.993 | 0.993 |
+| Avg. Ready Queue Length | 270.360 | 93.700 | 93.019 | 266.430 | 118.155 |
+
+
