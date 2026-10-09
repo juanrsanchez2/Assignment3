@@ -1,0 +1,789 @@
+#include <iostream>
+#include <cstdlib>
+#include <cmath>
+#include <ctime>
+#include <iomanip>
+using namespace std;
+
+//creating const variables
+const int NUM_PROCESSES = 1000;
+const float QUANTUM = 2.0;
+const float ARRIVAL_RATE = 2.0;
+const float SERVICE_RATE = 1.0;
+
+
+
+//creating a struct called Process
+struct Process {
+    int id;
+    float arrival_time;
+    float service_time;
+    float remaining_service_time;
+    float start_time;
+    float completion_time;
+};
+
+//creating a struct called Event
+struct Event {
+    enum EventType {
+        ARR,
+        DEP,
+        QUANTUM_EXPIRE
+    };
+    EventType type;
+    float time;
+    Process* process;
+    Event* next;
+};
+
+//creating a function to insert events into linked-list
+void addEvent(Event*& eventQueue, Event* newEvent) {
+    if (eventQueue == nullptr || newEvent->time < eventQueue->time) {
+        newEvent->next = eventQueue;
+        eventQueue = newEvent;
+        return;
+    }
+
+    Event* current = eventQueue;
+    while (current->next != nullptr && current->next->time <= newEvent->time) {
+        current = current->next;
+    }
+
+    newEvent->next = current->next;
+    current->next = newEvent;
+}
+
+//creating a function to remove event at the front of linked-list
+Event* removeEvent(Event*& eventQueue) {
+    if (eventQueue == nullptr) {
+        return nullptr;
+    }
+
+    Event* firstEvent = eventQueue;
+    eventQueue = eventQueue->next;
+    firstEvent->next = nullptr;
+
+    return firstEvent;
+}
+
+//removing a departure event for a process that gets preempted
+void removeDepartureEvent(Event*& eventQueue, Process* process) {
+    Event* current = eventQueue;
+    Event* previous = nullptr;
+
+    while (current != nullptr) {
+        if (current->type == Event::DEP && current->process == process) {
+            if (previous == nullptr) {
+                eventQueue = current->next;
+            }
+            else {
+                previous->next = current->next;
+            }
+
+            delete current;
+            return;
+        }
+
+        previous = current;
+        current = current->next;
+    }
+}
+
+int main () {
+
+    //seeding the random number generator
+    srand(time(0));
+
+    //creating an array to store 1000 processes
+    Process originalProcesses[NUM_PROCESSES];
+    Process processes[NUM_PROCESSES];
+
+    Event* eventQueue = nullptr;
+
+    Process* readyQueue[NUM_PROCESSES];
+    int readyFront = 0;
+    int readyRear = 0;
+
+    float clock = 0.0;
+    Process* runningProcess = nullptr;
+
+
+    //Assigning each process its process ID for now, using a for-loop
+    for(int i = 0; i < NUM_PROCESSES; i++) {
+        processes[i].id = i + 1;
+
+        float u = (float)rand() / (RAND_MAX + 1.0);
+        float interTime = log(1 - u) / ARRIVAL_RATE * -1;
+
+        //getting interArrivalTime and absoluteArrivalTime
+        if (i == 0) {
+            processes[i].arrival_time = interTime;
+        }
+        else {
+            processes[i].arrival_time = processes[i - 1].arrival_time + interTime;
+        }
+
+        //generating serviceTime and storing it in processes array
+        u = (float)rand() / (RAND_MAX + 1.0);
+        float serviceTime = log(1 - u) / SERVICE_RATE * -1;
+
+        processes[i].service_time = serviceTime;
+        processes[i].remaining_service_time = serviceTime; //since every process initially needs all of its service time
+        processes[i].start_time = -1;                      //since the process has not been started
+        processes[i].completion_time = -1;                 //since the process has not been completed
+
+        //making the arrival events
+        Event* arrivalEvent = new Event;
+        arrivalEvent->type = Event::ARR;
+        arrivalEvent->time = processes[i].arrival_time;
+        arrivalEvent->process = &processes[i];
+        arrivalEvent->next = nullptr;
+
+        addEvent(eventQueue, arrivalEvent);
+    }
+
+    //copying initial workload to originalProcesses, it will be our master copy
+    for (int i = 0; i < NUM_PROCESSES; i++) {
+        originalProcesses[i] = processes[i];
+    }
+
+    float lastEventTime = 0.0;
+    float readyQueueArea = 0.0;
+
+    //FCFS simulation loop
+    while (eventQueue != nullptr) {
+        Event* currentEvent = removeEvent(eventQueue);
+
+        readyQueueArea += (currentEvent->time -lastEventTime) * (readyRear - readyFront);
+        lastEventTime = currentEvent->time;
+
+        clock = currentEvent->time;
+
+        //checking if arrival of event starts immediately or goes into the queue (i.e., CPU was IDLE or BUSY)
+        if (currentEvent->type == Event::ARR) {
+            if (runningProcess == nullptr) {
+                runningProcess = currentEvent->process;
+                runningProcess->start_time = clock;
+
+                Event* departureEvent = new Event;
+                departureEvent->type = Event::DEP;
+                departureEvent->time = clock + runningProcess->service_time;
+                departureEvent->process = runningProcess;
+                departureEvent->next = nullptr;
+
+                addEvent(eventQueue, departureEvent);
+            }
+            else {
+                readyQueue[readyRear] = currentEvent->process;
+                readyRear++;
+            }
+        }
+        else if (currentEvent->type == Event::DEP) {
+            runningProcess->completion_time = clock;
+            runningProcess = nullptr;
+
+            if (readyFront < readyRear) {
+                runningProcess = readyQueue[readyFront];
+                readyFront++;
+
+                runningProcess->start_time = clock;
+
+                Event* departureEvent = new Event;
+                departureEvent->type = Event::DEP;
+                departureEvent->time = clock + runningProcess->service_time;
+                departureEvent->process = runningProcess;
+                departureEvent->next = nullptr;
+
+                addEvent(eventQueue, departureEvent);
+            }
+        }
+        //releasing dynamically allocated memory since it finished being used
+        delete currentEvent;
+    }
+
+    //calculating avg turnaround time / avg waiting time / avg response time for FCFS
+    float totalTurnaroundTime = 0.0;
+    float totalWaitingTime = 0.0;
+    float totalResponseTime = 0.0;
+    float totalBusyTime = 0.0;
+
+    for (int i = 0; i <NUM_PROCESSES; i++) {
+        totalTurnaroundTime += processes[i].completion_time - processes[i].arrival_time;
+        totalWaitingTime += (processes[i].completion_time - processes[i].arrival_time) - processes[i].service_time;
+        totalResponseTime += processes[i].start_time - processes[i].arrival_time;
+        totalBusyTime += processes[i].service_time;
+    }
+
+    float avgTurnaroundTime = totalTurnaroundTime / NUM_PROCESSES;
+    float avgWaitingTime = totalWaitingTime / NUM_PROCESSES;
+    float avgResponseTime = totalResponseTime / NUM_PROCESSES;
+    float avgCpuUtilization = totalBusyTime / clock * 100;
+    float throughput = (float)NUM_PROCESSES / clock;
+    float avgReadyQueueLength = readyQueueArea / clock;
+
+    //resting process/sim for SJF
+    for(int i = 0; i < NUM_PROCESSES; i++) {
+        processes[i] = originalProcesses[i];
+
+        Event* arrivalEvent = new Event;
+        arrivalEvent->type = Event::ARR;
+        arrivalEvent->time = processes[i].arrival_time;
+        arrivalEvent->process = &processes[i];
+        arrivalEvent->next = nullptr;
+
+        addEvent(eventQueue, arrivalEvent);
+    }
+
+    readyFront = 0;
+    readyRear = 0;
+    clock = 0.0;
+    runningProcess = nullptr;
+    lastEventTime = 0.0;
+    readyQueueArea = 0.0;
+
+    //SJF sim loop
+    while (eventQueue != nullptr) {
+        Event* currentEvent = removeEvent(eventQueue);
+        readyQueueArea += (currentEvent->time - lastEventTime) * (readyRear - readyFront);
+        lastEventTime = currentEvent->time;
+        clock = currentEvent->time;
+
+        if (currentEvent->type == Event::ARR) {
+            if (runningProcess == nullptr) {
+                runningProcess = currentEvent->process;
+                runningProcess->start_time = clock;
+
+                Event* departureEvent = new Event;
+                departureEvent->type = Event::DEP;
+                departureEvent->time = clock + runningProcess->service_time;
+                departureEvent->process = runningProcess;
+                departureEvent->next = nullptr;
+
+                addEvent(eventQueue, departureEvent);
+            }
+            else {
+                readyQueue[readyRear] = currentEvent->process;
+                readyRear++;
+            }
+        }
+
+        else if (currentEvent->type == Event::DEP) {
+            runningProcess->completion_time = clock;
+            runningProcess = nullptr;
+
+            if (readyFront < readyRear) {
+                int shortestIndex = readyFront;
+
+                for (int i = readyFront; i < readyRear; i++) {
+                    if (readyQueue[i]->service_time < readyQueue[shortestIndex]->service_time) {
+                        shortestIndex = i;
+                    }
+                    else if (readyQueue[i]->service_time == readyQueue[shortestIndex]->service_time && readyQueue[i]->id < readyQueue[shortestIndex]->id) {
+                        shortestIndex = i;
+                    }
+                }
+
+                Process* temp = readyQueue[readyFront];
+                readyQueue[readyFront] = readyQueue[shortestIndex];
+                readyQueue[shortestIndex] = temp;
+
+                runningProcess = readyQueue[readyFront];
+                readyFront++;
+                runningProcess->start_time = clock;
+
+                Event* departureEvent = new Event;
+                departureEvent->type = Event::DEP;
+                departureEvent->time = clock + runningProcess->service_time;
+                departureEvent->process = runningProcess;
+                departureEvent->next = nullptr;
+
+                addEvent(eventQueue, departureEvent);
+            }
+        }
+
+        //releasing dynamically allocated memory
+        delete currentEvent;
+    }
+
+    //calculating avg turnaround time / avg waiting time / avg response time for SJF
+    float sjfTotalTurnaroundTime = 0.0;
+    float sjfTotalWaitingTime = 0.0;
+    float sjfTotalResponseTime = 0.0;
+    float sjfTotalBusyTime = 0.0;
+
+    for (int i = 0; i < NUM_PROCESSES; i++) {
+        sjfTotalTurnaroundTime += processes[i].completion_time - processes[i].arrival_time;
+        sjfTotalWaitingTime += (processes[i].completion_time - processes[i].arrival_time) - processes[i].service_time;
+        sjfTotalResponseTime += processes[i].start_time - processes[i].arrival_time;
+        sjfTotalBusyTime += processes[i].service_time;
+    }
+
+    float sjfAvgTurnaroundTime = sjfTotalTurnaroundTime / NUM_PROCESSES;
+    float sjfAvgWaitingTime = sjfTotalWaitingTime / NUM_PROCESSES;
+    float sjfAvgResponseTime = sjfTotalResponseTime / NUM_PROCESSES;
+    float sjfAvgCpuUtilization = sjfTotalBusyTime / clock * 100;
+    float sjfThroughput = (float)NUM_PROCESSES / clock;
+    float sjfAvgReadyQueueLength = readyQueueArea / clock;
+
+    //resetting process/sim for SRTF
+    for(int i = 0; i < NUM_PROCESSES; i++) {
+        processes[i] = originalProcesses[i];
+
+        Event* arrivalEvent = new Event;
+        arrivalEvent->type = Event::ARR;
+        arrivalEvent->time = processes[i].arrival_time;
+        arrivalEvent->process = &processes[i];
+        arrivalEvent->next = nullptr;
+
+        addEvent(eventQueue, arrivalEvent);
+    }
+
+    readyFront = 0;
+    readyRear = 0;
+    clock = 0.0;
+    runningProcess = nullptr;
+    lastEventTime = 0.0;
+    readyQueueArea = 0.0;
+
+    int srtfReadyCount = 0; //need since processes can enter queue more than once
+    float lastStartTime = 0.0;
+
+    //SRTF sim loop
+    while (eventQueue != nullptr) {
+        Event* currentEvent = removeEvent(eventQueue);
+
+        readyQueueArea += (currentEvent->time - lastEventTime) * srtfReadyCount;
+        lastEventTime = currentEvent->time;
+        clock = currentEvent->time;
+
+        if (currentEvent->type == Event::ARR) {
+            if (runningProcess == nullptr) {
+                runningProcess = currentEvent->process;
+                runningProcess->start_time = clock;
+                lastStartTime = clock;
+
+                Event* departureEvent = new Event;
+                departureEvent->type = Event::DEP;
+                departureEvent->time = clock + runningProcess->remaining_service_time;
+                departureEvent->process = runningProcess;
+                departureEvent->next = nullptr;
+                addEvent(eventQueue, departureEvent);
+            }
+            else {
+                float timeRan = clock - lastStartTime;
+                runningProcess->remaining_service_time -= timeRan;
+
+                if (currentEvent->process->remaining_service_time < runningProcess->remaining_service_time) {
+                    removeDepartureEvent(eventQueue, runningProcess);
+
+                    readyQueue[srtfReadyCount] = runningProcess;
+                    srtfReadyCount++;
+
+                    runningProcess = currentEvent->process;
+                    runningProcess->start_time = clock;
+                    lastStartTime = clock;
+
+                    Event* departureEvent = new Event;
+                    departureEvent->type = Event::DEP;
+                    departureEvent->time = clock + runningProcess->remaining_service_time;
+                    departureEvent->process = runningProcess;
+                    departureEvent->next = nullptr;
+
+                    addEvent(eventQueue, departureEvent);
+                }
+                else {
+                    readyQueue[srtfReadyCount] = currentEvent->process;
+                    srtfReadyCount++;
+
+                    lastStartTime = clock;
+                }
+            }
+        }
+
+        else if (currentEvent->type == Event::DEP) {
+            runningProcess->remaining_service_time = 0.0;
+            runningProcess->completion_time = clock;
+            runningProcess = nullptr;
+
+            if (srtfReadyCount > 0) {
+                int shortestIndex = 0;
+
+                for (int i = 0; i < srtfReadyCount; i++) {
+                    if (readyQueue[i]->remaining_service_time < readyQueue[shortestIndex]->remaining_service_time) {
+                        shortestIndex = i;
+                    }
+                    else if (readyQueue[i]->remaining_service_time == readyQueue[shortestIndex]->remaining_service_time && readyQueue[i]->id < readyQueue[shortestIndex]->id) {
+                        shortestIndex = i;
+                    }
+                }
+
+                runningProcess = readyQueue[shortestIndex];
+
+                for (int i = shortestIndex; i < srtfReadyCount - 1; i++) {
+                    readyQueue[i] = readyQueue[i + 1];
+                }
+
+                srtfReadyCount--;
+
+                if (runningProcess->start_time == -1) {
+                    runningProcess->start_time = clock;
+                }
+
+                lastStartTime = clock;
+
+                Event* departureEvent = new Event;
+                departureEvent->type = Event::DEP;
+                departureEvent->time = clock + runningProcess->remaining_service_time;
+                departureEvent->process = runningProcess;
+                departureEvent->next = nullptr;
+
+                addEvent(eventQueue, departureEvent);
+            }
+        }
+
+        delete currentEvent;
+    }
+
+    //calculating avg turnaround time / avg waiting time / avg response time for SRTF
+    float srtfTotalTurnaroundTime = 0.0;
+    float srtfTotalWaitingTime = 0.0;
+    float srtfTotalResponseTime = 0.0;
+    float srtfTotalBusyTime = 0.0;
+
+    for (int i = 0; i < NUM_PROCESSES; i++) {
+        srtfTotalTurnaroundTime += processes[i].completion_time - processes[i].arrival_time;
+        srtfTotalWaitingTime += (processes[i].completion_time - processes[i].arrival_time) - processes[i].service_time;
+        srtfTotalResponseTime += processes[i].start_time - processes[i].arrival_time;
+        srtfTotalBusyTime += processes[i].service_time;
+    }
+
+    float srtfAvgTurnaroundTime = srtfTotalTurnaroundTime / NUM_PROCESSES;
+    float srtfAvgWaitingTime = srtfTotalWaitingTime / NUM_PROCESSES;
+    float srtfAvgResponseTime = srtfTotalResponseTime / NUM_PROCESSES;
+    float srtfAvgCpuUtilization = srtfTotalBusyTime / clock * 100;
+    float srtfThroughput = (float)NUM_PROCESSES / clock;
+    float srtfAvgReadyQueueLength = readyQueueArea / clock;
+
+    //resetting process/sim for RR
+    for(int i = 0; i < NUM_PROCESSES; i++) {
+        processes[i] = originalProcesses[i];
+
+        Event* arrivalEvent = new Event;
+        arrivalEvent->type = Event::ARR;
+        arrivalEvent->time = processes[i].arrival_time;
+        arrivalEvent->process = &processes[i];
+        arrivalEvent->next = nullptr;
+
+        addEvent(eventQueue, arrivalEvent);
+    }
+
+    readyFront = 0;
+    readyRear = 0;
+    clock = 0.0;
+    runningProcess = nullptr;
+    lastEventTime = 0.0;
+    readyQueueArea = 0.0;
+
+    int rrReadyCount = 0;
+
+    //RR simulation loop
+    while (eventQueue != nullptr) {
+        Event* currentEvent = removeEvent(eventQueue);
+
+        readyQueueArea += (currentEvent->time - lastEventTime) * rrReadyCount;
+        lastEventTime = currentEvent->time;
+        clock = currentEvent->time;
+
+        if (currentEvent->type == Event::ARR) {
+            if (runningProcess == nullptr) {
+                runningProcess = currentEvent->process;
+
+                if (runningProcess->start_time == -1) {
+                    runningProcess->start_time = clock;
+                }
+
+                Event* nextEvent = new Event;
+                if (runningProcess->remaining_service_time <= QUANTUM) {
+                    nextEvent->type = Event::DEP;
+                    nextEvent->time = clock + runningProcess->remaining_service_time;
+                }
+                else {
+                    nextEvent->type = Event::QUANTUM_EXPIRE;
+                    nextEvent->time = clock + QUANTUM;
+                }
+
+                nextEvent->process = runningProcess;
+                nextEvent->next = nullptr;
+
+                addEvent(eventQueue, nextEvent);
+
+            }
+            else {
+                readyQueue[rrReadyCount] = currentEvent->process;
+                rrReadyCount++;
+            }
+        }
+
+        else if (currentEvent->type == Event::DEP) {
+            runningProcess->remaining_service_time = 0.0;
+            runningProcess->completion_time = clock;
+            runningProcess = nullptr;
+
+            if (rrReadyCount > 0) {
+                runningProcess = readyQueue[0];
+
+                for (int i = 0; i < rrReadyCount - 1; i++) {
+                    readyQueue[i] = readyQueue[i + 1];
+                }
+
+                rrReadyCount--;
+
+                if (runningProcess->start_time == -1) {
+                    runningProcess->start_time = clock;
+                }
+
+                Event* nextEvent = new Event;
+
+                if (runningProcess->remaining_service_time <= QUANTUM) {
+                    nextEvent->type = Event::DEP;
+                    nextEvent->time = clock + runningProcess->remaining_service_time;
+                }
+                else {
+                    nextEvent->type = Event::QUANTUM_EXPIRE;
+                    nextEvent->time = clock + QUANTUM;
+                }
+
+                nextEvent->process = runningProcess;
+                nextEvent->next = nullptr;
+
+                addEvent(eventQueue, nextEvent);
+            }
+        }
+        else if (currentEvent->type == Event::QUANTUM_EXPIRE) {
+            runningProcess->remaining_service_time -= QUANTUM;
+            readyQueue[rrReadyCount] = runningProcess;
+            rrReadyCount++;
+            runningProcess = readyQueue[0];
+
+            for (int i = 0; i < rrReadyCount - 1; i++) {
+                readyQueue[i] = readyQueue[i + 1];
+            }
+
+            rrReadyCount--;
+
+            if (runningProcess->start_time == -1) {
+                runningProcess->start_time = clock;
+            }
+
+            Event* nextEvent = new Event;
+
+            if (runningProcess->remaining_service_time <= QUANTUM) {
+                nextEvent->type = Event::DEP;
+                nextEvent->time = clock + runningProcess->remaining_service_time;
+            }
+            else {
+                nextEvent->type = Event::QUANTUM_EXPIRE;
+                nextEvent->time = clock + QUANTUM;
+            }
+
+            nextEvent->process = runningProcess;
+            nextEvent->next = nullptr;
+
+            addEvent(eventQueue, nextEvent);
+        }
+
+        delete currentEvent;
+    }
+
+    //calculating avg turnaround time / avg waiting time / avg response time for RR
+    float rrTotalTurnaroundTime = 0.0;
+    float rrTotalWaitingTime = 0.0;
+    float rrTotalResponseTime = 0.0;
+    float rrTotalBusyTime = 0.0;
+
+    for (int i = 0; i < NUM_PROCESSES; i++) {
+        rrTotalTurnaroundTime += processes[i].completion_time - processes[i].arrival_time;
+        rrTotalWaitingTime += (processes[i].completion_time - processes[i].arrival_time) - processes[i].service_time;
+        rrTotalResponseTime += processes[i].start_time - processes[i].arrival_time;
+        rrTotalBusyTime += processes[i].service_time;
+    }
+
+    float rrAvgTurnaroundTime = rrTotalTurnaroundTime / NUM_PROCESSES;
+    float rrAvgWaitingTime = rrTotalWaitingTime / NUM_PROCESSES;
+    float rrAvgResponseTime = rrTotalResponseTime / NUM_PROCESSES;
+    float rrAvgCpuUtilization = rrTotalBusyTime / clock * 100;
+    float rrThroughput = (float)NUM_PROCESSES / clock;
+    float rrAvgReadyQueueLength = readyQueueArea / clock;
+
+    //resetting process/sim for HRRN
+    for(int i = 0; i < NUM_PROCESSES; i++) {
+        processes[i] = originalProcesses[i];
+
+        Event* arrivalEvent = new Event;
+        arrivalEvent->type = Event::ARR;
+        arrivalEvent->time = processes[i].arrival_time;
+        arrivalEvent->process = &processes[i];
+        arrivalEvent->next = nullptr;
+
+        addEvent(eventQueue, arrivalEvent);
+    }
+
+    readyFront = 0;
+    readyRear = 0;
+    clock = 0.0;
+    runningProcess = nullptr;
+    lastEventTime = 0.0;
+    readyQueueArea = 0.0;
+
+    //HRRN simulation loop
+    while (eventQueue != nullptr) {
+        Event* currentEvent = removeEvent(eventQueue);
+
+        readyQueueArea += (currentEvent->time - lastEventTime) * (readyRear - readyFront);
+        lastEventTime = currentEvent->time;
+        clock = currentEvent->time;
+
+        if (currentEvent->type == Event::ARR) {
+            if (runningProcess == nullptr) {
+                runningProcess = currentEvent->process;
+                runningProcess->start_time = clock;
+
+                Event* departureEvent = new Event;
+                departureEvent->type = Event::DEP;
+                departureEvent->time = clock + runningProcess->service_time;
+                departureEvent->process = runningProcess;
+                departureEvent->next = nullptr;
+
+                addEvent(eventQueue, departureEvent);
+            }
+            else {
+                readyQueue[readyRear] = currentEvent->process;
+                readyRear++;
+            }
+        }
+        else if (currentEvent->type == Event::DEP) {
+            runningProcess->completion_time = clock;
+            runningProcess = nullptr;
+
+            if (readyFront < readyRear) {
+                int highestIndex = readyFront;
+                float highestRatio = 0.0;
+
+                for (int i = readyFront; i < readyRear; i++) {
+                    float waitingTime = clock - readyQueue[i]->arrival_time;
+                    float responseRatio = (waitingTime + readyQueue[i]->service_time) / readyQueue[i]->service_time;
+
+                    if (responseRatio > highestRatio) {
+                        highestRatio = responseRatio;
+                        highestIndex = i;
+                    }
+                    else if (responseRatio == highestRatio && readyQueue[i]->id < readyQueue[highestIndex]->id) {
+                        highestIndex = i;
+                    }
+                }
+
+                Process* temp = readyQueue[readyFront];
+                readyQueue[readyFront] = readyQueue[highestIndex];
+                readyQueue[highestIndex] = temp;
+
+                runningProcess = readyQueue[readyFront];
+                readyFront++;
+
+                runningProcess->start_time = clock;
+
+                Event* departureEvent = new Event;
+                departureEvent->type = Event::DEP;
+                departureEvent->time = clock + runningProcess->service_time;
+                departureEvent->process = runningProcess;
+                departureEvent->next = nullptr;
+
+                addEvent(eventQueue, departureEvent);
+            }
+        }
+
+        delete currentEvent;
+    }
+
+    //calculating avg turnaround time / avg waiting time / avg response time for HRRN
+    float hrrnTotalTurnaroundTime = 0.0;
+    float hrrnTotalWaitingTime = 0.0;
+    float hrrnTotalResponseTime = 0.0;
+    float hrrnTotalBusyTime = 0.0;
+
+    for (int i = 0; i < NUM_PROCESSES; i++) {
+        hrrnTotalTurnaroundTime += processes[i].completion_time - processes[i].arrival_time;
+        hrrnTotalWaitingTime += (processes[i].completion_time - processes[i].arrival_time) - processes[i].service_time;
+        hrrnTotalResponseTime += processes[i].start_time - processes[i].arrival_time;
+        hrrnTotalBusyTime += processes[i].service_time;
+    }
+
+    float hrrnAvgTurnaroundTime = hrrnTotalTurnaroundTime / NUM_PROCESSES;
+    float hrrnAvgWaitingTime = hrrnTotalWaitingTime / NUM_PROCESSES;
+    float hrrnAvgResponseTime = hrrnTotalResponseTime / NUM_PROCESSES;
+    float hrrnAvgCpuUtilization = hrrnTotalBusyTime / clock * 100;
+    float hrrnThroughput = (float)NUM_PROCESSES / clock;
+    float hrrnAvgReadyQueueLength = readyQueueArea / clock;
+
+    cout << "### CS 3360 Assignment 3 Performance Summary (1000 Processes)" << endl;
+    cout << endl;
+
+    cout << left << setw(32) << "Metric"
+         << "| " << setw(12) << "FCFS"
+         << "| " << setw(12) << "SJF"
+         << "| " << setw(12) << "SRTF"
+         << "| " << setw(12) << "RR (q = 2.0)"
+         << "| " << "HRRN" << endl;
+
+    cout << "--------------------------------------------------------------------------------------------------------" << endl;
+
+    cout << left << fixed << setprecision(3)
+         << setw(32) << "Total Completion Time (s)"
+         << "| " << setw(12) << clock
+         << "| " << setw(12) << clock
+         << "| " << setw(12) << clock
+         << "| " << setw(12) << clock
+         << "| " << clock << endl;
+
+    cout << setw(32) << "Average Turnaround Time (s)"
+         << "| " << setw(12) << avgTurnaroundTime
+         << "| " << setw(12) << sjfAvgTurnaroundTime
+         << "| " << setw(12) << srtfAvgTurnaroundTime
+         << "| " << setw(12) << rrAvgTurnaroundTime
+         << "| " << hrrnAvgTurnaroundTime << endl;
+
+    cout << setw(32) << "Average Waiting Time (s)"
+         << "| " << setw(12) << avgWaitingTime
+         << "| " << setw(12) << sjfAvgWaitingTime
+         << "| " << setw(12) << srtfAvgWaitingTime
+         << "| " << setw(12) << rrAvgWaitingTime
+         << "| " << hrrnAvgWaitingTime << endl;
+
+    cout << setw(32) << "Average Response Time (s)"
+         << "| " << setw(12) << avgResponseTime
+         << "| " << setw(12) << sjfAvgResponseTime
+         << "| " << setw(12) << srtfAvgResponseTime
+         << "| " << setw(12) << rrAvgResponseTime
+         << "| " << hrrnAvgResponseTime << endl;
+
+    cout << setw(32) << "CPU Utilization (%)"
+         << "| " << setw(12) << avgCpuUtilization
+         << "| " << setw(12) << sjfAvgCpuUtilization
+         << "| " << setw(12) << srtfAvgCpuUtilization
+         << "| " << setw(12) << rrAvgCpuUtilization
+         << "| " << hrrnAvgCpuUtilization << endl;
+
+    cout << setw(32) << "System Throughput (proc/s)"
+         << "| " << setw(12) << throughput
+         << "| " << setw(12) << sjfThroughput
+         << "| " << setw(12) << srtfThroughput
+         << "| " << setw(12) << rrThroughput
+         << "| " << hrrnThroughput << endl;
+
+    cout << setw(32) << "Avg. Ready Queue Length"
+         << "| " << setw(12) << avgReadyQueueLength
+         << "| " << setw(12) << sjfAvgReadyQueueLength
+         << "| " << setw(12) << srtfAvgReadyQueueLength
+         << "| " << setw(12) << rrAvgReadyQueueLength
+         << "| " << hrrnAvgReadyQueueLength << endl;
+    return 0;
+}
