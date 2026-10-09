@@ -13,3 +13,15 @@ The 5 Schedulers:
 - Shortest Remaining Time First (SRTF)
 - Round Robin (RR)
 - Highest response Ratio Next (HRRN)
+
+## Performance Metrics
+The following performance metrics will be calculated for all 5 schedulers:
+
+- <ins>**Total Completion Time:**</ins> The total time required to finish all 1000 processes
+- <ins>**Average Turnaround Time:**</ins> The average time between a process's arrival and completion
+- <ins>**Average Waiting Time:**</ins> The average time a process spends waiting in the ready queue
+- <ins>**Average Response Time:**</ins> The average time of a process's arrival and its first execution
+- <ins>**CPU Utilization:**</ins> The percentage of time the CPU spends executing processes
+- <ins>**System Throughput:**</ins> The number of processes completed per second
+- <ins>**Average Ready Queue Length:**</ins> The average number of processes waiting in the ready queue
+
